@@ -12,7 +12,6 @@ számítógépen futó komplex modulokat (jelenleg a `Spotify Web API`
 integrációt), miközben a PC-oldali alkalmazás dinamikusan
 állapot-visszajelzéseket küld a hardver kijelzőjére.
 
-![Alt text](./figures/HLD_plantuml.svg)
 <img src="./figures/HLD_plantuml.svg">
 
 ## Modulok
