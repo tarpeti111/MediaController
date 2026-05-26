@@ -1,0 +1,11 @@
+#define BTN_START 0x0001
+#define BTN_SELECT 0x0002
+#define JOY_C 0x0004
+#define JOY_E 0x0100
+#define JOY_S 0x0200
+#define JOY_W 0x0400
+#define JOY_N 0x0800
+#define JOY_NE 0x1000
+#define JOY_SE 0x2000
+#define JOY_NW 0x4000
+#define JOY_SW 0x8000
