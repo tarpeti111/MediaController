@@ -14,6 +14,7 @@ SDK_DIR := $(realpath $(PROJ_DIR)/../../../..)
 # appending items to the project variables like INCLUDEPATHS or C_SRC.         #
 ################################################################################
 
+ENABLE_DYNAMIC_LINKING := 1
 include $(SDK_DIR)/app/bluetooth/component_host/toolchain.mk
 include $(SDK_DIR)/app/bluetooth/component_host/app_log.mk
 include $(SDK_DIR)/app/bluetooth/component_host/app_assert.mk
@@ -49,21 +50,33 @@ $(PROJ_DIR)/ble.c \
 $(PROJ_DIR)/model.c \
 $(PROJ_DIR)/main.c \
 $(PROJ_DIR)/cJSON.c \
-$(PROJ_DIR)/spotify.c 
+$(PROJ_DIR)/gui/gui.c \
+$(PROJ_DIR)/gui/window/main_window.c \
+$(PROJ_DIR)/gui/pages/overview.c \
+$(PROJ_DIR)/gui/pages/modules.c \
+$(PROJ_DIR)/gui/pages/installer.c \
+$(PROJ_DIR)/gui/pages/settings.c \
+$(PROJ_DIR)/gui/widgets/module_card.c \
+$(PROJ_DIR)/gui/widgets/status_indicator.c \
+$(PROJ_DIR)/gui/widgets/log_viewer.c \
+$(PROJ_DIR)/modules/spotify/spotify.c 
 
 GATT_XML_FILES += $(PROJ_DIR)/config/btconf/gatt_configuration.btconf
 
 ################################################################################
 # Target rules                                                                 #
 ################################################################################
-# 1. Force the static macro
+
 override CFLAGS += -DCURL_STATICLIB
 
-# 2. Add include paths (if not already found)
-override CFLAGS += -I/mingw64/include
-override LDFLAGS += -lssl
-override LDFLAGS += -lcrypto
-override LDFLAGS += -lws2_32
+# GTK4
+override CFLAGS += $(shell pkg-config --cflags gtk4)
+override LDFLAGS += $(shell pkg-config --libs gtk4)
+
+# Curl
 override LDFLAGS += $(shell pkg-config --libs --static libcurl)
+
+# OpenSSL / Windows
+override LDFLAGS += -lssl -lcrypto -lws2_32
 
 include $(SDK_DIR)/app/bluetooth/component_host/targets.mk

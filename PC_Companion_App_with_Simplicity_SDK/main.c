@@ -30,50 +30,92 @@
 
 #include <stdbool.h>
 #include <stdlib.h>
+#include <windows.h>
+#include <process.h>
+#include <glib.h>
+#include <stdio.h>
+
 #include "system.h"
 #include "app_signal.h"
 #include "app.h"
+#include "gui/gui.h"
 
-// Main loop execution status.
-static volatile bool run = true;
+static gint run = 1;
 
-// Custom signal handler.
 static void signal_handler(int sig)
 {
-  (void)sig;
-  if (run) {
-    run = false;
-  } else {
-    exit(EXIT_FAILURE);
+    (void)sig;
+    g_atomic_int_set(&run, 0);
+}
+
+typedef struct {
+    int argc;
+    char **argv;
+} thread_args_t;
+
+static unsigned __stdcall silabs_main(void *arg)
+{
+  thread_args_t *args = (thread_args_t *)arg;
+
+  printf("[THREAD] Silicon Labs thread started\n");
+
+  app_signal(SIGINT, signal_handler);
+  app_signal(SIGTERM, signal_handler);
+
+  printf("[THREAD] Initializing system...\n");
+
+  sl_system_init();
+
+  printf("[THREAD] System initialized\n");
+
+  app_init(args->argc, args->argv);
+
+  printf("[THREAD] Application initialized\n");
+
+  while (g_atomic_int_get(&run)) {
+    sl_system_process_action();
+    app_process_action();
   }
+
+  printf("[THREAD] Deinitializing...\n");
+
+  app_deinit();
+
+  return 0;
 }
 
 int main(int argc, char *argv[])
 {
-  // Set up custom signal handler for user interrupt and termination request.
-  app_signal(SIGINT, signal_handler);
-  app_signal(SIGTERM, signal_handler);
+  static thread_args_t args;
 
-  // Initialize Silicon Labs device, system, service(s) and protocol stack(s).
-  // Note that if the kernel is present, processing task(s) will be created by
-  // this call.
-  sl_system_init();
+  args.argc = argc;
+  args.argv = argv;
 
-  // Initialize the application. For example, create periodic timer(s) or
-  // task(s) if the kernel is present.
-  app_init(argc, argv);
+  // Start Silicon Labs worker thread.
+  uintptr_t thread_id = _beginthreadex(
+      NULL,
+      0,
+      silabs_main,
+      &args,
+      0,
+      NULL
+  );
 
-  while (run) {
-    // Do not remove this call: Silicon Labs components process action routine
-    // must be called from the super loop.
-    sl_system_process_action();
-
-    // Application process.
-    app_process_action();
+  if (thread_id == 0) {
+      return EXIT_FAILURE;
   }
 
-  // Deinitialize the application.
-  app_deinit();
+  // GTK runs on the main thread.
+  int status = gui_main(0, NULL);
 
-  return EXIT_SUCCESS;
+  // Request Silicon Labs shutdown.
+  g_atomic_int_set(&run, 0);
+
+  // Wait for Silicon Labs to finish app_deinit().
+  HANDLE thread = (HANDLE)thread_id;
+
+  WaitForSingleObject(thread, INFINITE);
+  CloseHandle(thread);
+
+  return status;
 }

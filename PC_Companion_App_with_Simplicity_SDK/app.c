@@ -40,7 +40,7 @@
 #include "app_log_cli.h"
 #include "app_assert.h"
 #include "model.h"
-#include "spotify.h"
+#include "modules/spotify/spotify.h"
 
 // Optstring argument for getopt.
 #define OPTSTRING      NCP_HOST_OPTSTRING APP_LOG_OPTSTRING "hR"
