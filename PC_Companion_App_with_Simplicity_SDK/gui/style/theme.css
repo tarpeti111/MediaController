@@ -1,0 +1,384 @@
+
+/* =========================================================
+   MediaController - Dark Theme
+   ========================================================= */
+
+@define-color bg_main #101116;
+@define-color bg_sidebar #15161e;
+@define-color bg_surface #1b1d27;
+@define-color bg_surface_hover #242735;
+@define-color bg_input #13151c;
+
+@define-color accent #7c83ff;
+@define-color accent_hover #9298ff;
+@define-color accent_subtle alpha(#7c83ff, 0.14);
+
+@define-color text_main #ececf4;
+@define-color text_secondary #a0a2b4;
+@define-color text_muted #696c7d;
+
+@define-color border #2b2e3b;
+@define-color success #4bd6a0;
+@define-color warning #f3bd69;
+@define-color error #ff687d;
+
+
+/* =========================================================
+   Main Window
+   ========================================================= */
+
+window {
+    background: @bg_main;
+    color: @text_main;
+
+    font-family: "Segoe UI", sans-serif;
+    font-size: 10pt;
+}
+
+
+/* =========================================================
+   Header Bar
+   ========================================================= */
+
+headerbar {
+    background: @bg_sidebar;
+    color: @text_main;
+
+    border-bottom: 1px solid @border;
+
+    min-height: 48px;
+    padding: 4px 12px;
+}
+
+headerbar title {
+    font-weight: bold;
+    font-size: 15px;
+}
+
+headerbar button {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+
+    color: @text_secondary;
+    border-radius: 8px;
+
+    padding: 7px 12px;
+
+    transition: background 150ms ease;
+}
+
+headerbar button:hover {
+    background: @bg_surface_hover;
+    color: @text_main;
+}
+
+
+/* Sidebar */
+.sidebar {
+    background-color: #15161e;
+    border-right: 1px solid #2b2e3b;
+
+    padding: 16px 10px;
+}
+
+/* Sidebar buttons */
+.sidebar button {
+    background-color: transparent;
+    color: #a0a2b4;
+
+    border: none;
+    border-radius: 9px;
+
+    padding: 11px 14px;
+
+    box-shadow: none;
+}
+
+/* Hover */
+.sidebar button:hover {
+    background-color: #242735;
+    color: #ececf4;
+}
+
+/* Selected page */
+.sidebar button:checked {
+    background-color: #292943;
+    color: #9298ff;
+}
+
+
+/* =========================================================
+   Typography
+   ========================================================= */
+
+.title-1 {
+    font-size: 20pt;
+    font-weight: bold;
+    color: @text_main;
+}
+
+.title-2 {
+    font-size: 16pt;
+    font-weight: bold;
+    color: @text_main;
+}
+
+.heading {
+    font-size: 14pt;
+    font-weight: bold;
+    color: @text_main;
+}
+
+.dim-label {
+    color: @text_secondary;
+}
+
+.muted-label {
+    color: @text_muted;
+}
+
+
+/* =========================================================
+   Buttons
+   ========================================================= */
+
+button {
+    background: @bg_surface;
+    color: @text_main;
+
+    border: 1px solid @border;
+    border-radius: 9px;
+
+    padding: 9px 14px;
+
+    box-shadow: none;
+
+    transition:
+        background 150ms ease,
+        border-color 150ms ease;
+}
+
+button:hover {
+    background: @bg_surface_hover;
+    border-color: #41465a;
+}
+
+button:active {
+    background: #303449;
+}
+
+button:disabled {
+    opacity: 0.45;
+}
+
+
+/* Primary Button */
+
+button.suggested-action {
+    background: @accent;
+    color: white;
+
+    border: none;
+    font-weight: bold;
+}
+
+button.suggested-action:hover {
+    background: @accent_hover;
+}
+
+
+/* Destructive Button */
+
+button.destructive-action {
+    background: alpha(@error, 0.12);
+    color: @error;
+    border: 1px solid alpha(@error, 0.3);
+}
+
+button.destructive-action:hover {
+   background: alpha(@error, 0.24);
+}
+
+
+/* =========================================================
+   Cards
+   ========================================================= */
+
+.module-card,
+.stat-card {
+    background: @bg_surface;
+
+    border: 1px solid @border;
+    border-radius: 14px;
+
+    padding: 18px;
+
+    transition:
+        background 150ms ease,
+        border-color 150ms ease;
+}
+
+.module-card:hover {
+    background: @bg_surface_hover;
+    border-color: #454a61;
+}
+
+.stat-card {
+    min-width: 150px;
+}
+
+.stat-value {
+    font-size: 30px;
+    font-weight: bold;
+    color: @accent_hover;
+}
+
+
+/* =========================================================
+   Installer / Drag and Drop
+   ========================================================= */
+
+.drop-area {
+    background: @bg_surface;
+
+    border: 2px dashed #41465a;
+    border-radius: 18px;
+
+    padding: 12px;
+
+    transition:
+        background 150ms ease,
+        border-color 150ms ease;
+}
+
+.drop-area:hover {
+    background: #202333;
+    border-color: @accent;
+}
+
+.drop-button {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+
+    min-height: 220px;
+
+    border-radius: 12px;
+}
+
+.drop-button:hover {
+    background: alpha(@accent, 0.08);
+    border: none;
+}
+
+.drop-button:active {
+    background: alpha(@accent, 0.16);
+}
+
+
+/* =========================================================
+   Debug Console
+   ========================================================= */
+
+.debug-panel {
+    background: #0c0d12;
+
+    border-top: 1px solid @border;
+    padding: 10px;
+}
+
+.debug-console {
+    background: #0c0d12;
+    color: #c6cad8;
+
+    font-family: "Consolas", monospace;
+    font-size: 12px;
+}
+
+.debug-console text {
+    background: #0c0d12;
+    color: #c6cad8;
+}
+
+
+/* =========================================================
+   Connection Status
+   ========================================================= */
+
+.status-online {
+    color: @success;
+    font-weight: bold;
+}
+
+.status-offline {
+    color: @text_muted;
+}
+
+.status-warning {
+    color: @warning;
+}
+
+
+/* =========================================================
+   Inputs
+   ========================================================= */
+
+entry,
+textview,
+spinbutton,
+dropdown,
+combobox {
+    background: @bg_input;
+    color: @text_main;
+
+    border: 1px solid @border;
+    border-radius: 8px;
+
+    padding: 8px;
+}
+
+entry:focus {
+    border-color: @accent;
+}
+
+
+/* =========================================================
+   Scrollbars
+   ========================================================= */
+
+scrollbar slider {
+    background: #414456;
+    border-radius: 10px;
+
+    min-width: 6px;
+    min-height: 6px;
+}
+
+scrollbar slider:hover {
+    background: #666b86;
+}
+
+
+/* =========================================================
+   Separators
+   ========================================================= */
+
+separator {
+    background: @border;
+}
+
+
+/* =========================================================
+   Tooltips
+   ========================================================= */
+
+tooltip {
+    background: #252735;
+    color: @text_main;
+
+    border: 1px solid #41465a;
+    border-radius: 7px;
+
+    padding: 6px 10px;
+}
