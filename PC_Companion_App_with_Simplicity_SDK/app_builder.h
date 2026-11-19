@@ -1,9 +1,13 @@
+#ifndef APP_BUILDER_H
+#define APP_BUILDER_H
+
 #include "stdint.h"
 
 #define APP_ID_DEFAULT 0xFF
 
 typedef void (*app_on_input_t)(uint16_t input);
 typedef void (*app_on_app_launch_t)(void);
+typedef void (*app_on_app_process_action_t)(void);
 typedef void (*app_on_app_process_action_t)(void);
 
 typedef struct __attribute__((packed)){
@@ -17,7 +21,10 @@ typedef struct {
   app_on_app_launch_t on_app_launch;
   app_on_input_t on_input;
   app_on_app_process_action_t on_app_process_action;
+  app_on_playlist_request_t on_playlist_request;
   
 }extended_app_t;
 
 size_t app_builder_bitstringToBytes(const char *input, uint8_t *output);
+
+#endif

@@ -1,4 +1,5 @@
 #include "module_card.h"
+#include "../gui_backend.h"
 
 static void on_module_settings(GtkButton *button, gpointer data)
 {
@@ -9,13 +10,18 @@ static void on_module_settings(GtkButton *button, gpointer data)
 
 static void on_module_delete(GtkButton *button, gpointer data)
 {
-    const char *name = data;
+    const char *id = data;
 
-    g_print("Delete module: %s\n", name);
+    gui_backend_send_command(
+        GUI_CMD_DELETE_MODULE,
+        id
+    );
 }
 
 GtkWidget *module_card_create(
+    const char *id,
     const char *name,
+    const char *icon,
     const char *description,
     const char *version)
 {
@@ -25,12 +31,38 @@ GtkWidget *module_card_create(
     gtk_widget_add_css_class(card, "module-card");
 
     gtk_widget_set_size_request(card, 250, 160);
+    
+    GtkWidget *icon_widget = NULL;
+
+    if (icon != NULL && icon[0] != '\0') {
+        char *icon_path = g_build_filename(
+            "modules",
+            id,
+            icon,
+            NULL
+        );
+
+        if (g_file_test(icon_path, G_FILE_TEST_IS_REGULAR)) {
+            icon_widget = gtk_image_new_from_file(icon_path);
+        }
+
+        g_free(icon_path);
+    }
+
+    if (icon_widget == NULL) {
+        icon_widget = gtk_image_new_from_icon_name(
+            "application-x-executable-symbolic"
+        );
+    }
+
+    gtk_image_set_pixel_size(GTK_IMAGE(icon_widget), 48);
 
     GtkWidget *heading =
         gtk_label_new(name);
 
     gtk_widget_add_css_class(heading, "heading");
-    gtk_widget_set_halign(heading, GTK_ALIGN_START);
+    gtk_widget_set_halign(heading, GTK_ALIGN_CENTER);
+    gtk_widget_set_halign(icon_widget, GTK_ALIGN_CENTER);
 
     GtkWidget *desc =
         gtk_label_new(description);
@@ -55,23 +87,28 @@ GtkWidget *module_card_create(
     gtk_widget_add_css_class(delete_button, "destructive-action");
 
 
-    g_signal_connect(
+    g_signal_connect_data(
         manage_button,
         "clicked",
         G_CALLBACK(on_module_settings),
-        (gpointer)name
+        g_strdup(name),
+        (GClosureNotify)g_free,
+        0
     );
 
-    g_signal_connect(
+    g_signal_connect_data(
         delete_button,
         "clicked",
         G_CALLBACK(on_module_delete),
-        (gpointer)name
+        g_strdup(id),
+        (GClosureNotify)g_free,
+        0
     );
 
     gtk_box_append(GTK_BOX(button_box), manage_button);
     gtk_box_append(GTK_BOX(button_box), delete_button);
 
+    gtk_box_append(GTK_BOX(card), icon_widget);
     gtk_box_append(GTK_BOX(card), heading);
     gtk_box_append(GTK_BOX(card), desc);
     gtk_box_append(GTK_BOX(card), version_label);

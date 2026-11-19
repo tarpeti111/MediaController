@@ -1,11 +1,12 @@
 #include "main_window.h"
 
-#include "../pages/overview.h"
-#include "../pages/modules.h"
-#include "../pages/installer.h"
-#include "../pages/settings.h"
+#include "../pages/page_overview.h"
+#include "../pages/page_modules.h"
+#include "../pages/page_installer.h"
+#include "../pages/page_settings.h"
 #include "../widgets/log_viewer.h"
 #include "../widgets/status_indicator.h"
+#include "../gui_backend.h"
 
 static void navigate(GtkButton *button, gpointer data)
 {
@@ -105,7 +106,8 @@ GtkWidget *main_window_create(GtkApplication *app)
 
     GtkWidget *status =
         status_indicator_create();
-
+        
+    gui_backend_bind_status(status);
     gtk_header_bar_pack_start(
         GTK_HEADER_BAR(header),
         status

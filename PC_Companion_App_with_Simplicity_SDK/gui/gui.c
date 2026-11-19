@@ -1,5 +1,6 @@
 #include <gtk/gtk.h>
 #include "window/main_window.h"
+#include "util/stdout_capture.h"
 
 static void load_css(void)
 {
@@ -26,6 +27,10 @@ static void on_activate(
     load_css();
 
     GtkWidget *window = main_window_create(app);
+
+    if (!stdout_capture_start()) {
+        g_warning("Failed to start stdout capture");
+    }
 
     gtk_window_present(GTK_WINDOW(window));
 }

@@ -42,6 +42,11 @@
 #include "model.h"
 #include "modules/spotify/spotify.h"
 
+#include "gui/gui_backend.h"
+#include "gui/gui_modules.h"
+#include "modules/modules.h"
+#include "modules/module_manager.h"
+
 // Optstring argument for getopt.
 #define OPTSTRING      NCP_HOST_OPTSTRING APP_LOG_OPTSTRING "hR"
 
@@ -54,6 +59,54 @@
   NCP_HOST_OPTIONS \
   APP_LOG_OPTIONS  \
   "    -h  Print this help message.\n"
+
+static void process_gui_commands(void)
+{
+    gui_command_t cmd;
+
+    while (gui_backend_get_command(&cmd)) {
+
+        switch (cmd.type) {
+
+            case GUI_CMD_DELETE_MODULE: {
+              char *error = NULL;
+
+              if (module_manager_remove(cmd.name, &error)) {
+                app_log_info("Module removed: %s\n", cmd.name);
+
+                gui_modules_init("modules");
+                gui_backend_notify_modules_changed();
+              } else {
+                app_log_error("Module removal failed: %s\n", error ? error : "Unknown error");
+              }
+
+              g_free(error);
+              break;
+            }
+
+            case GUI_CMD_INSTALL_MODULE:
+                app_log_info(
+                    "Install module: %s\n",
+                    cmd.name
+                );
+
+                // Call your module installation function here.
+                break;
+
+            case GUI_CMD_LAUNCH_MODULE:
+                app_log_info(
+                    "Launch module: %s\n",
+                    cmd.name
+                );
+
+                // Call your module launch function here.
+                break;
+
+            default:
+                break;
+        }
+    }
+}
 
 /**************************************************************************//**
 * Application Init.
@@ -107,7 +160,7 @@ void app_init(int argc, char *argv[])
 
   model_init();
   //INITIALIZE APPLICATIONS
-  spotify_init();
+  modules_init();
 }
 
 /**************************************************************************//**
@@ -121,6 +174,7 @@ void app_process_action(void)
   // Do not call blocking functions from here!                               //
   /////////////////////////////////////////////////////////////////////////////
   model_process_action();
+  process_gui_commands();
 }
 
 /**************************************************************************//**

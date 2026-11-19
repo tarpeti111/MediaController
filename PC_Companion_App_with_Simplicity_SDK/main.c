@@ -39,6 +39,7 @@
 #include "app_signal.h"
 #include "app.h"
 #include "gui/gui.h"
+#include "gui/gui_backend.h"
 
 static gint run = 1;
 
@@ -86,6 +87,8 @@ static unsigned __stdcall silabs_main(void *arg)
 
 int main(int argc, char *argv[])
 {
+  gui_backend_init();
+
   static thread_args_t args;
 
   args.argc = argc;

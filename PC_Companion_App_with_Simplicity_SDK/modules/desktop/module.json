@@ -1,0 +1,7 @@
+{
+    "id": "desktop",
+    "name": "Desktop",
+    "version": "1.0.0",
+    "description": "Control and interact with your desktop environment.",
+    "icon": "icon.png"
+}

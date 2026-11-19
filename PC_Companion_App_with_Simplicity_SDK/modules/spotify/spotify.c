@@ -580,5 +580,15 @@ static void spotify_process_action(){
 
 void spotify_init(){
     curl = curl_easy_init();
-    model_add_app("Spotify", spotify_image, spotify_on_launch, spotify_on_input, spotify_process_action);
 }
+
+const module_descriptor_t spotify_module = {
+    .id = "spotify",
+    .metadata_path = "modules/spotify/module.json",
+    .name = "Spotify",
+    .image = spotify_image,
+    .on_launch = spotify_on_launch,
+    .on_input = spotify_on_input,
+    .on_process_action = spotify_process_action,
+    .init = spotify_init
+};

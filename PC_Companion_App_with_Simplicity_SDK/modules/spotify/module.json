@@ -1,0 +1,7 @@
+{
+    "id": "spotify",
+    "name": "Spotify",
+    "version": "1.0.0",
+    "description": "Control Spotify playback and manage your music.",
+    "icon": "icon.png"
+}
