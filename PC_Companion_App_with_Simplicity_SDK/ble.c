@@ -4,14 +4,13 @@
 #include "app_assert.h"
 #include "app_log.h"
 #include "app_log_cli.h"
-#include "media_protocol.h"
 
 static ble_connected_cb_t ble_connected_cb = NULL;
 static ble_apps_requested_cb_t ble_apps_requested_cb = NULL;
 static ble_disconnected_cb_t ble_disconnected_cb = NULL;
 static ble_input_received_cb_t ble_input_received_cb = NULL;
 static ble_app_chosen_cb_t ble_app_chosen_cb = NULL;
-static ble_send_playlist_cb_t ble_send_playlist_cb = NULL;
+static ble_playlist_request_cb_t ble_playlist_request_cb = NULL;
 
 // The advertising set handle allocated from Bluetooth stack.
 static uint8_t advertising_set_handle = SL_BT_INVALID_ADVERTISING_SET_HANDLE;
@@ -39,6 +38,10 @@ void reset_flags(){
 
 sl_status_t ble_send_app_info_data(const uint8_t* data){
   return sl_bt_gatt_server_send_notification(connection_handle, gattdb_app_info_data, gattdb_app_info_data_len, data);
+}
+
+sl_status_t ble_send_playlist_data(const uint8_t* data, uint8_t len){
+  return sl_bt_gatt_server_send_notification(connection_handle, gattdb_media_data, len, data);
 }
 
 /**************************************************************************//**
@@ -199,9 +202,12 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
         );
       }
       if (evt->data.evt_gatt_server_user_write_request.characteristic == gattdb_media_request) {
-        if(ble_send_playlist_cb){
-          uint8_t index = (uint16_t)evt->data.evt_gatt_characteristic_value.value.data[0] << 8 | evt->data.evt_gatt_characteristic_value.value.data[1];
-          ble_send_playlist_cb(index);
+        // Request is a big-endian uint16 (see media_protocol.h).
+        if (ble_playlist_request_cb
+            && evt->data.evt_gatt_server_user_write_request.value.len >= 2) {
+          const uint8_t *data = evt->data.evt_gatt_server_user_write_request.value.data;
+          uint16_t request = (uint16_t)((data[0] << 8) | data[1]);
+          ble_playlist_request_cb(request);
         }
         // Send response (MANDATORY)
         sl_bt_gatt_server_send_user_write_response(
@@ -209,6 +215,7 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
           gattdb_media_request,
           SL_STATUS_OK
         );
+      }
       break;
     // Default event handler.
     default:
@@ -236,6 +243,6 @@ void ble_set_disconnected_cb(ble_disconnected_cb_t cb){
   ble_disconnected_cb = cb;
 }
 
-void ble_set_send_playlist_cb(ble_send_playlist_cb_t cb){
-  ble_send_playlist_cb = cb;
+void ble_set_playlist_request_cb(ble_playlist_request_cb_t cb){
+  ble_playlist_request_cb = cb;
 }

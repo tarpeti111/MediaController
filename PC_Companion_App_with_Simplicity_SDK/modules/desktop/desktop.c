@@ -55,8 +55,10 @@ static void desktop_init(void)
 
 const module_descriptor_t desktop_module = {
     .id = "desktop",
-    .metadata_path = "modules/desktop/module.json",
     .name = "Desktop",
+    .version = "1.0.0",
+    .description = "Control and interact with your desktop environment.",
+    .icon = NULL,  /* No icon yet; the GUI shows a generic one */
     .image = desktop_image,
     .on_launch = desktop_on_launch,
     .on_input = desktop_on_input,

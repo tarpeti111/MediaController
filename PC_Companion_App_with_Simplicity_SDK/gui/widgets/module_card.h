@@ -3,12 +3,8 @@
 
 #include <gtk/gtk.h>
 
-GtkWidget *module_card_create(
-    const char *id,
-    const char *name,
-    const char *icon,
-    const char *description,
-    const char *version
-);
+#include "../../modules/module_descriptor.h"
+
+GtkWidget *module_card_create(const module_descriptor_t *module);
 
 #endif

@@ -3,33 +3,23 @@
 
 #include "app_builder.h"
 #include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
 
-#define MODEL_MODULE_ID_LENGTH 32
-
-typedef struct {
-    uint8_t id;
-    char module_id[MODEL_MODULE_ID_LENGTH];
-    char name[16];
-} model_app_info_t;
-
+/*
+ * The model is owned by the Silicon Labs thread. Do not call these
+ * functions from the GUI thread.
+ */
 void model_init(void);
 void model_process_action(void);
 
 bool model_add_app(
-    const char *module_id,
     const char *name,
     const char *bitstring_img,
     app_on_app_launch_t on_init_cb,
     app_on_input_t on_input_cb,
-    app_on_app_process_action_t on_app_process_action
+    app_on_app_process_action_t on_app_process_action,
+    app_on_playlist_request_t on_playlist_request
 );
 
-/* Returns a thread-safe copy of the registered applications. */
-size_t model_get_apps(
-    model_app_info_t *apps,
-    size_t capacity
-);
+bool model_send_media(const uint8_t* data, uint8_t len);
 
 #endif

@@ -1,4 +1,3 @@
-
 #include "model.h"
 
 #include <stdint.h>
@@ -15,21 +14,13 @@
 
 #define MAX_NUMBER_OF_APPS 12
 
-static GMutex model_mutex;
-static bool model_initialized = false;
-
 const extended_app_t e_app_default = {
     {"EMPTY", APP_ID_DEFAULT, {0}},
     NULL, NULL, NULL, NULL
 };
 
 typedef struct {
-    extended_app_t app;
-    char module_id[MODEL_MODULE_ID_LENGTH];
-} model_module_t;
-
-typedef struct {
-    model_module_t modules[MAX_NUMBER_OF_APPS];
+    extended_app_t apps[MAX_NUMBER_OF_APPS];
     uint8_t app_count;
     uint8_t app_choice;
     uint16_t input_states;
@@ -43,11 +34,11 @@ static void send_all_apps(void)
 
     for (size_t i = 0;
          i < MAX_NUMBER_OF_APPS &&
-         model.modules[i].app.app.id != APP_ID_DEFAULT;
+         model.apps[i].app.id != APP_ID_DEFAULT;
          i++) {
 
         sc = ble_send_app_info_data(
-            (const uint8_t *)&model.modules[i].app.app
+            (const uint8_t *)&model.apps[i].app
         );
 
         app_assert_status(sc);
@@ -59,10 +50,10 @@ static void input_evt(uint16_t inputs)
     model.input_states = inputs;
 
     if (model.app_choice < MAX_NUMBER_OF_APPS &&
-        model.modules[model.app_choice].app.app.id != APP_ID_DEFAULT) {
+        model.apps[model.app_choice].app.id != APP_ID_DEFAULT) {
 
-        if (model.modules[model.app_choice].app.on_input) {
-            model.modules[model.app_choice].app.on_input(inputs);
+        if (model.apps[model.app_choice].on_input) {
+            model.apps[model.app_choice].on_input(inputs);
         }
     }
 }
@@ -77,10 +68,10 @@ static void start_app(uint8_t choice)
     );
 
     if (model.app_choice < MAX_NUMBER_OF_APPS &&
-        model.modules[model.app_choice].app.app.id != APP_ID_DEFAULT) {
+        model.apps[model.app_choice].app.id != APP_ID_DEFAULT) {
 
-        if (model.modules[model.app_choice].app.on_app_launch) {
-            model.modules[model.app_choice].app.on_app_launch();
+        if (model.apps[model.app_choice].on_app_launch) {
+            model.apps[model.app_choice].on_app_launch();
         }
     }
 }
@@ -96,6 +87,12 @@ static void on_disconnect(void)
     gui_backend_set_connected(FALSE);
 }
 
+static void model_on_playlist_request(uint16_t request){
+    if (model.app_choice < MAX_NUMBER_OF_APPS && model.apps[model.app_choice].app.id != APP_ID_DEFAULT) {
+        model.apps[model.app_choice].on_playlist_request(request);
+    }
+}
+
 static void set_callbacks(void)
 {
     ble_set_connected_cb(on_connect);
@@ -103,129 +100,57 @@ static void set_callbacks(void)
     ble_set_apps_requested_cb(send_all_apps);
     ble_set_input_received_cb(input_evt);
     ble_set_app_chosen_cb(start_app);
+    ble_set_playlist_request_cb(model_on_playlist_request);
+}
+bool model_send_media(const uint8_t* data, uint8_t len){
+    if(data == NULL || len == 0){
+        return false;
+    }
+    sl_status_t sc;
+    sc = ble_send_playlist_data(data, len);
+    app_assert_status(sc);
+    return true;
 }
 
 bool model_add_app(
-    const char *module_id,
     const char *name,
     const char *bitstring_img,
     app_on_app_launch_t on_launch,
     app_on_input_t on_input,
-    app_on_app_process_action_t on_app_process_action)
+    app_on_app_process_action_t on_app_process_action,
+    app_on_playlist_request_t on_playlist_request)
 {
-    if (module_id == NULL || name == NULL || bitstring_img == NULL)
+    if (name == NULL || bitstring_img == NULL)
         return false;
 
-    bool added = false;
+    if (model.app_count >= MAX_NUMBER_OF_APPS)
+        return false;
 
-    g_mutex_lock(&model_mutex);
+    extended_app_t *app = &model.apps[model.app_count];
 
-    for (size_t i = 0; i < MAX_NUMBER_OF_APPS; i++) {
+    app->app.id = model.app_count++;
 
-        if (model.modules[i].app.app.id == APP_ID_DEFAULT) {
+    g_strlcpy(app->app.name, name, sizeof(app->app.name));
 
-            model_module_t *module = &model.modules[i];
+    app_builder_bitstringToBytes(bitstring_img, app->app.bitmap);
 
-            module->app.app.id = model.app_count++;
+    app->on_app_launch = on_launch;
+    app->on_input = on_input;
+    app->on_app_process_action = on_app_process_action;
+    app->on_playlist_request = on_playlist_request;
 
-            g_strlcpy(
-                module->app.app.name,
-                name,
-                sizeof(module->app.app.name)
-            );
-
-            g_strlcpy(
-                module->module_id,
-                module_id,
-                sizeof(module->module_id)
-            );
-
-            app_builder_bitstringToBytes(
-                bitstring_img,
-                module->app.app.bitmap
-            );
-
-            module->app.on_app_launch = on_launch;
-            module->app.on_input = on_input;
-            module->app.on_app_process_action = on_app_process_action;
-
-            added = true;
-            break;
-        }
-    }
-
-    g_mutex_unlock(&model_mutex);
-
-    if (added)
-        gui_backend_notify_modules_changed();
-
-    return added;
-}
-
-size_t model_get_apps(
-    model_app_info_t *apps,
-    size_t capacity)
-{
-    if (apps == NULL || capacity == 0)
-        return 0;
-
-    g_mutex_lock(&model_mutex);
-
-    if (!model_initialized) {
-        g_mutex_unlock(&model_mutex);
-        return 0;
-    }
-
-    size_t count = 0;
-
-    for (size_t i = 0;
-         i < MAX_NUMBER_OF_APPS && count < capacity;
-         i++) {
-
-        model_module_t *module = &model.modules[i];
-
-        if (module->app.app.id == APP_ID_DEFAULT)
-            break;
-
-        apps[count].id = module->app.app.id;
-
-        g_strlcpy(
-            apps[count].module_id,
-            module->module_id,
-            sizeof(apps[count].module_id)
-        );
-
-        g_strlcpy(
-            apps[count].name,
-            module->app.app.name,
-            sizeof(apps[count].name)
-        );
-
-        count++;
-    }
-
-    g_mutex_unlock(&model_mutex);
-
-    return count;
+    return true;
 }
 
 void model_init(void)
 {
-    g_mutex_lock(&model_mutex);
-
     model.app_count = 0;
     model.app_choice = APP_ID_DEFAULT;
     model.input_states = 0;
 
     for (size_t i = 0; i < MAX_NUMBER_OF_APPS; i++) {
-        model.modules[i].app = e_app_default;
-        memset(model.modules[i].module_id, 0,
-               sizeof(model.modules[i].module_id));
+        model.apps[i] = e_app_default;
     }
-
-    model_initialized = true;
-
-    g_mutex_unlock(&model_mutex);
 
     set_callbacks();
 }
@@ -233,10 +158,10 @@ void model_init(void)
 void model_process_action(void)
 {
     if (model.app_choice < MAX_NUMBER_OF_APPS &&
-        model.modules[model.app_choice].app.app.id != APP_ID_DEFAULT) {
+        model.apps[model.app_choice].app.id != APP_ID_DEFAULT) {
 
-        if (model.modules[model.app_choice].app.on_app_process_action) {
-            model.modules[model.app_choice].app.on_app_process_action();
+        if (model.apps[model.app_choice].on_app_process_action) {
+            model.apps[model.app_choice].on_app_process_action();
         }
     }
 }

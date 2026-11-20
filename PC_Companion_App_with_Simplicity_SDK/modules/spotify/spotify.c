@@ -1,6 +1,7 @@
 #include "spotify.h"
 #include "model.h"
 #include "input_config.h"
+#include "media_protocol.h"
 
 #include <curl/curl.h>
 #include "cJSON.h"
@@ -12,7 +13,7 @@
 #include "openssl/evp.h"
 
 #include "winsock2.h"
-#include <process.h>
+#include <glib.h>
 
 #define URI_REDIRECT "http://127.0.0.1:3000/callback"
 #define CLIENT_ID "83b1ec911c044b0fb10307816951f3a8"
@@ -22,6 +23,10 @@
 #define MAX_ARTIST_NAME_LENGHT 64
 #define MAX_DEVICE_NAME_LENGHT 64
 #define MAX_DEVICE_ID_LENGHT 64
+
+#define MAX_URI_LENGHT 128
+#define MAX_QUEUE 32
+#define NOW_PLAYING_POLL_INTERVAL_S (2 * G_USEC_PER_SEC)
 
 //https://curl.se/libcurl/c/CURLOPT_WRITEFUNCTION.html
 struct memory {
@@ -96,11 +101,33 @@ static char access_token[512] = {'\0'};
 static char refresh_token[512] = {'\0'};
 static char auth_code[512] = {'\0'};
 
-static void setup_callback_server(){
+//
+
+media_now_playing_t last_playing = {
+    .type = 0,
+};
+
+typedef struct {
+    char name[MEDIA_TITLE_LENGTH];
+    char uri[MAX_URI_LENGHT];
+} queue_entry_t;
+
+static queue_entry_t queue[MAX_QUEUE];
+static uint16_t queue_count = 0;
+static uint16_t queue_sent = 0; //number of entries already sent
+
+static char current_context_uri[MAX_URI_LENGHT] = {0};
+static int64_t last_poll_us = 0;
+
+static char pending_body[512];
+
+static gpointer setup_callback_server(gpointer data){
+    (void)data;
+
     WSADATA wsa;
     if(WSAStartup(MAKEWORD(2,2),&wsa) != 0){
         printf("Failed WSAStartup, error: %d", WSAGetLastError());
-        return;
+        return NULL;
     }
 
     SOCKET sServer = socket(AF_INET, SOCK_STREAM, 0);
@@ -145,7 +172,7 @@ static void setup_callback_server(){
 
     state = SPOTIFY_HAVE_CODE;
 
-    _endthread();
+    return NULL;
 }
 
 static void generate_verifier(char* dest, size_t len){
@@ -336,13 +363,16 @@ static void refresh_access(){
 }
 
 static void spotify_on_launch(){
+    memset(&last_playing, 0, sizeof(last_playing));
+    last_poll_us = 0;
+    
     if(state != SPOTIFY_IDLE) return;
 
     if(strlen(refresh_token) > 0){
         state = SPOTIFY_REFRESHING;
     }
     else{
-        _beginthread(setup_callback_server, 2048, NULL);
+        g_thread_unref(g_thread_new("spotify-auth", setup_callback_server, NULL));
         get_auth_code();
         state = SPOTIFY_WAIT_AUTH;
     }
@@ -379,6 +409,7 @@ static CURLcode update_current_track_and_device(){
         current_track.id[0] = '\0';
         current_track.is_playing = false;
         current_track.name[0] = '\0';
+        current_context_uri[0] = '\0';
 
         curl_slist_free_all(headers);
         free(mem.response);
@@ -400,8 +431,6 @@ static CURLcode update_current_track_and_device(){
     }
 
     cJSON* device = cJSON_GetObjectItemCaseSensitive(json, "device");
-    cJSON* track = cJSON_GetObjectItemCaseSensitive(json, "item");
-    cJSON* is_playing = cJSON_GetObjectItemCaseSensitive(json, "is_playing");
     if(device){
         cJSON* device_name = cJSON_GetObjectItemCaseSensitive(device, "name");
         cJSON* device_id = cJSON_GetObjectItemCaseSensitive(device, "id");
@@ -416,6 +445,8 @@ static CURLcode update_current_track_and_device(){
             current_device.volume = device_volume->valueint;
         }
     }
+    
+    cJSON* track = cJSON_GetObjectItemCaseSensitive(json, "item");
     if(track){
         cJSON* track_name = cJSON_GetObjectItemCaseSensitive(track, "name");
         cJSON* track_id = cJSON_GetObjectItemCaseSensitive(track, "id");
@@ -436,8 +467,21 @@ static CURLcode update_current_track_and_device(){
             }
         }
     }
+    
+    cJSON* is_playing = cJSON_GetObjectItemCaseSensitive(json, "is_playing");
     if(cJSON_IsBool(is_playing)){
         current_track.is_playing = cJSON_IsTrue(is_playing);
+    }
+
+    cJSON* context = cJSON_GetObjectItemCaseSensitive(json, "context");
+    if(context){
+        cJSON* context_uri = cJSON_GetObjectItemCaseSensitive(context, "uri");
+        if(context_uri->valuestring != NULL){
+            snprintf(current_context_uri, sizeof(current_context_uri), "%s", context->valuestring);
+        }
+        else{
+            current_context_uri[0] = '\0'; 
+        }
     }
     
     curl_slist_free_all(headers);
@@ -447,7 +491,7 @@ static CURLcode update_current_track_and_device(){
     return res;
 }
 
-static CURLcode spotify_request(const char* url, const char* method){
+static CURLcode spotify_request(const char* url, const char* method, const char* body){
     curl_easy_reset(curl);
 
     struct curl_slist *headers = NULL;
@@ -473,6 +517,10 @@ static CURLcode spotify_request(const char* url, const char* method){
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard_cb);
 
+    if(body != NULL){
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
+    }
+
     CURLcode res = curl_easy_perform(curl);
 
     curl_slist_free_all(headers);
@@ -480,19 +528,134 @@ static CURLcode spotify_request(const char* url, const char* method){
 }
 
 static CURLcode pause_playback(){
-    return spotify_request("https://api.spotify.com/v1/me/player/pause", "PUT");
+    return spotify_request("https://api.spotify.com/v1/me/player/pause", "PUT", NULL);
 }
 
 static CURLcode resume_playback(){
-    return spotify_request("https://api.spotify.com/v1/me/player/play", "PUT");
+    return spotify_request("https://api.spotify.com/v1/me/player/play", "PUT", NULL);
 }
 
 static CURLcode skip_forward(){
-    return spotify_request("https://api.spotify.com/v1/me/player/next", "POST");
+    return spotify_request("https://api.spotify.com/v1/me/player/next", "POST", NULL);
 }
 
 static CURLcode skip_backward(){
-    return spotify_request("https://api.spotify.com/v1/me/player/previous", "POST");
+    return spotify_request("https://api.spotify.com/v1/me/player/previous", "POST", NULL);
+}
+
+static int fetch_queue(){
+    curl_easy_reset(curl);
+
+    //Remember to free later
+    struct curl_slist *headers = NULL;
+
+    char token_str[600];
+    snprintf(token_str, sizeof(token_str), "Authorization: Bearer %s", access_token);
+    headers = curl_slist_append(headers, token_str);
+
+    //Remember to free later
+    struct memory mem = {0};
+
+    curl_easy_setopt(curl, CURLOPT_URL, "https://api.spotify.com/v1/me/player/queue");
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &mem);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+    CURLcode res = curl_easy_perform(curl);
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, http_code);
+
+    if(res != CURLE_OK){
+        printf("curl error %s\n", curl_easy_strerror(res));
+        free(mem.response);
+        return -1;
+    }
+
+    if(http_code != 200 || mem.response == NULL){
+        printf("fetch_queue failed, HTTP %ld\n", http_code);
+        free(mem.response);
+        return -1;
+    }
+
+    cJSON* json = cJSON_Parse(mem.response);
+    free(mem.response);
+
+    if(json == NULL){
+        printf("Error parsing JSON\n");
+        return -1;
+    }
+
+    queue_count = 0;
+
+    cJSON* items = cJSON_GetObjectItemCaseSensitive(json, "queue");
+    cJSON* item;
+    cJSON_ArrayForEach(item, items){
+        if(queue_count >= MAX_QUEUE){ return -1; }
+
+        cJSON* name = cJSON_GetObjectItemCaseSensitive(item, "name");
+        cJSON* uri = cJSON_GetObjectItemCaseSensitive(item, "uri");
+
+        queue_entry_t *entry = &queue[queue_count];
+        entry->name[0] = '\0';
+        entry->uri[0] = '\0';
+
+        if(cJSON_IsString(name) && name->valuestring != NULL){
+            snprintf(entry->name, sizeof(entry->name), "%s", name->valuestring);
+        }
+        if(cJSON_IsString(uri) && uri->valuestring != NULL){
+            snprintf(entry->uri, sizeof(entry->uri), "%s", uri->valuestring);
+        }
+        queue_count++;
+    }
+
+    cJSON_Delete(json);
+    return queue_count;
+}
+
+static void send_queue_entries(uint16_t count){
+    if(queue_count == 0){
+        media_playlist_entry_t empty = { .type = MEDIA_MSG_PLAYLIST_ENTRY };
+        model_send_media((const uint8_t *)&empty, sizeof(empty));
+        return;
+    }
+
+    uint16_t end = queue_sent + count;
+    if(end > queue_count){
+        end = queue_count;
+    }
+
+    for(uint16_t i = queue_sent; i < end; i++){
+        media_playlist_entry_t entry = {
+            .type = MEDIA_MSG_PLAYLIST_ENTRY,
+            .index = i,
+            .total = queue_count,
+        };
+        snprintf(entry.title, sizeof(entry.title), "%s", queue[i].name);
+        model_send_media((const uint8_t *)&entry, sizeof(entry));
+    }
+
+    queue_sent = end;
+}
+
+static CURLcode play_pending_body(){
+    return spotify_request("https://api.spotify.com/v1/me/player/play", "PUT", pending_body);
+}
+
+static void send_now_playing_if_changed(void){
+    media_now_playing_t msg = {
+        .type = MEDIA_MSG_PLAYLIST_NOW_PLAYLING,
+        .is_playing = current_track.is_playing,
+    };
+    snprintf(msg.title, sizeof(msg.title), "%s", current_track.name);
+    snprintf(msg.artist, sizeof(msg.artist), "%s", current_track.artist_name);
+
+    if(memcpy(&msg, &last_playing, sizeof(msg)) == 0) { return; }
+
+    if(model_send_media((const uint8_t *)&msg, sizeof(msg)) == true){
+        last_playing = msg;
+    }
 }
 
 //Perform an action such as resume_playback, if it fails due to an expired token, get a new one via the refresh token and try again
@@ -527,12 +690,8 @@ static void spotify_on_input(uint16_t inputs){
     }
     if(inputs & JOY_C){
         update_current_track_and_device();
-        if(!current_track.is_playing){
-            perform_action(resume_playback);
-        }
-        else{
-            perform_action(pause_playback);
-        }
+        send_now_playing_if_changed();
+        perform_action(current_track.is_playing ? pause_playback : resume_playback);
     }
     if(inputs & JOY_N){
 
@@ -540,6 +699,7 @@ static void spotify_on_input(uint16_t inputs){
     if(inputs & JOY_E){
         perform_action(skip_forward);
         update_current_track_and_device();
+        send_now_playing_if_changed();
     }
     if(inputs & JOY_S){
 
@@ -547,6 +707,7 @@ static void spotify_on_input(uint16_t inputs){
     if(inputs & JOY_W){
         perform_action(skip_backward);
         update_current_track_and_device();
+        send_now_playing_if_changed();
     }
 }
 
@@ -567,14 +728,72 @@ static void spotify_process_action(){
                 state = SPOTIFY_READY;
             } else {
                 // fallback to full auth
-                _beginthread(setup_callback_server, 2048, NULL);
+                g_thread_unref(g_thread_new("spotify-auth", setup_callback_server, NULL));
                 get_auth_code();
                 state = SPOTIFY_WAIT_AUTH;
+            }
+            break;
+        
+        case SPOTIFY_READY:
+            int64_t now = g_get_monotonic_time();
+            if((now = last_poll_us) >= NOW_PLAYING_POLL_INTERVAL_S){
+                last_poll_us = now;
+                update_current_track_and_device();
+                send_now_playing_if_changed();
             }
             break;
 
         default:
             break;
+    }
+}
+
+static void play_queue_entry(uint16_t index){
+    if(index >= queue_count){ return; }
+
+    if(current_context_uri[0] != '\0' && queue[index].uri[0] != '\0'){
+        snprintf(pending_body, sizeof(pending_body),
+                "{\"context_uri\":\"%s\",\"offset\":{\"uri\":\"%s\"}}",
+                current_context_uri, queue[index].uri);
+        perform_action(play_pending_body);
+
+        long http_code = 0;
+        curl_easy_setopt(curl, CURLINFO_RESPONSE_CODE, http_code);
+        if(http_code >= 200 && http_code < 300) { return; }
+    }
+
+    //if it didnt work fall back to just skipping x songs
+    for(uint16_t i = 0; i <= index; i++){
+        perform_action(skip_forward);
+    }
+}
+
+static void spotify_on_playlist_request(uint16_t request){
+    if (state != SPOTIFY_READY) return;
+    
+    switch (request)
+    {
+    case PLAYLIST_REQUEST_FIRST:
+        update_current_track_and_device();
+        queue_sent = 0;
+        
+        if(fetch_queue() < 0){
+            queue_count = 0;
+        }
+
+        send_queue_entries(PLAYLIST_FIRST_BATCH_SIZE);
+        break;
+
+    case PLAYLIST_REQUEST_NEXT:
+        if(queue_sent >= queue_count){ return; }
+        send_queue_entries(PLAYLIST_BATCH_SIZE);
+        break;
+
+    default:
+        play_queue_entry(request);
+        update_current_track_and_device();
+        send_now_playing_if_changed();
+        break;
     }
 }
 
@@ -584,11 +803,14 @@ void spotify_init(){
 
 const module_descriptor_t spotify_module = {
     .id = "spotify",
-    .metadata_path = "modules/spotify/module.json",
     .name = "Spotify",
+    .version = "1.0.0",
+    .description = "Control Spotify playback and manage your music.",
+    .icon = "modules/spotify/icon.png",
     .image = spotify_image,
     .on_launch = spotify_on_launch,
     .on_input = spotify_on_input,
     .on_process_action = spotify_process_action,
-    .init = spotify_init
+    .init = spotify_init,
+    .on_playlist_request = spotify_on_playlist_request
 };

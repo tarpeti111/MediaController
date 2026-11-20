@@ -1,14 +1,15 @@
 #ifndef APP_BUILDER_H
 #define APP_BUILDER_H
 
-#include "stdint.h"
+#include <stddef.h>
+#include <stdint.h>
 
 #define APP_ID_DEFAULT 0xFF
 
 typedef void (*app_on_input_t)(uint16_t input);
 typedef void (*app_on_app_launch_t)(void);
 typedef void (*app_on_app_process_action_t)(void);
-typedef void (*app_on_app_process_action_t)(void);
+typedef void (*app_on_playlist_request_t)(uint16_t request);
 
 typedef struct __attribute__((packed)){
   char name[16];

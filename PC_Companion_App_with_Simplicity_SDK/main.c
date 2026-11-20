@@ -30,8 +30,6 @@
 
 #include <stdbool.h>
 #include <stdlib.h>
-#include <windows.h>
-#include <process.h>
 #include <glib.h>
 #include <stdio.h>
 
@@ -39,7 +37,6 @@
 #include "app_signal.h"
 #include "app.h"
 #include "gui/gui.h"
-#include "gui/gui_backend.h"
 
 static gint run = 1;
 
@@ -54,7 +51,7 @@ typedef struct {
     char **argv;
 } thread_args_t;
 
-static unsigned __stdcall silabs_main(void *arg)
+static gpointer silabs_main(gpointer arg)
 {
   thread_args_t *args = (thread_args_t *)arg;
 
@@ -82,43 +79,25 @@ static unsigned __stdcall silabs_main(void *arg)
 
   app_deinit();
 
-  return 0;
+  return NULL;
 }
 
 int main(int argc, char *argv[])
 {
-  gui_backend_init();
-
   static thread_args_t args;
 
   args.argc = argc;
   args.argv = argv;
 
-  // Start Silicon Labs worker thread.
-  uintptr_t thread_id = _beginthreadex(
-      NULL,
-      0,
-      silabs_main,
-      &args,
-      0,
-      NULL
-  );
-
-  if (thread_id == 0) {
-      return EXIT_FAILURE;
-  }
+  // Start Silicon Labs worker thread. g_thread_new() aborts on failure.
+  GThread *thread = g_thread_new("silabs", silabs_main, &args);
 
   // GTK runs on the main thread.
   int status = gui_main(0, NULL);
 
-  // Request Silicon Labs shutdown.
+  // Request Silicon Labs shutdown and wait for app_deinit() to finish.
   g_atomic_int_set(&run, 0);
-
-  // Wait for Silicon Labs to finish app_deinit().
-  HANDLE thread = (HANDLE)thread_id;
-
-  WaitForSingleObject(thread, INFINITE);
-  CloseHandle(thread);
+  g_thread_join(thread);
 
   return status;
 }

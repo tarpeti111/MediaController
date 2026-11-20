@@ -54,16 +54,13 @@ $(PROJ_DIR)/gui/gui.c \
 $(PROJ_DIR)/gui/window/main_window.c \
 $(PROJ_DIR)/gui/pages/page_overview.c \
 $(PROJ_DIR)/gui/pages/page_modules.c \
-$(PROJ_DIR)/gui/pages/page_installer.c \
 $(PROJ_DIR)/gui/pages/page_settings.c \
 $(PROJ_DIR)/gui/util/stdout_capture.c \
 $(PROJ_DIR)/gui/widgets/module_card.c \
 $(PROJ_DIR)/gui/widgets/status_indicator.c \
 $(PROJ_DIR)/gui/widgets/log_viewer.c \
 $(PROJ_DIR)/gui/gui_backend.c \
-$(PROJ_DIR)/gui/gui_modules.c \
 $(PROJ_DIR)/modules/modules.c \
-$(PROJ_DIR)/modules/module_manager.c \
 $(PROJ_DIR)/modules/desktop/desktop.c \
 $(PROJ_DIR)/modules/spotify/spotify.c 
 
@@ -82,11 +79,12 @@ override LDFLAGS += $(shell pkg-config --libs gtk4)
 # Curl
 override LDFLAGS += $(shell pkg-config --libs --static libcurl)
 
-# OpenSSL / Windows
-override LDFLAGS += -lssl -lcrypto -lws2_32
+# OpenSSL
+override LDFLAGS += -lssl -lcrypto
 
-# libarchive for reading .zip files
-override CFLAGS += $(shell pkg-config --cflags libarchive)
-override LDFLAGS += $(shell pkg-config --libs libarchive)
+# Winsock (Windows only)
+ifeq ($(OS),Windows_NT)
+override LDFLAGS += -lws2_32
+endif
 
 include $(SDK_DIR)/app/bluetooth/component_host/targets.mk
