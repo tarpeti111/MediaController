@@ -37,6 +37,7 @@
 #include "app_signal.h"
 #include "app.h"
 #include "gui/gui.h"
+#include "gui/util/stdout_capture.h"
 
 static gint run = 1;
 
@@ -84,6 +85,12 @@ static gpointer silabs_main(gpointer arg)
 
 int main(int argc, char *argv[])
 {
+  // Capture stdout/stderr first, so everything printed from here on also
+  // shows up in the GUI's debug panel (the terminal still gets it too).
+  if (!stdout_capture_start()) {
+    fprintf(stderr, "Failed to start stdout capture\n");
+  }
+
   static thread_args_t args;
 
   args.argc = argc;

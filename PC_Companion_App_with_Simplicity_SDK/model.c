@@ -88,7 +88,9 @@ static void on_disconnect(void)
 }
 
 static void model_on_playlist_request(uint16_t request){
-    if (model.app_choice < MAX_NUMBER_OF_APPS && model.apps[model.app_choice].app.id != APP_ID_DEFAULT) {
+    if (model.app_choice < MAX_NUMBER_OF_APPS &&
+        model.apps[model.app_choice].app.id != APP_ID_DEFAULT &&
+        model.apps[model.app_choice].on_playlist_request != NULL) {
         model.apps[model.app_choice].on_playlist_request(request);
     }
 }
@@ -102,14 +104,13 @@ static void set_callbacks(void)
     ble_set_app_chosen_cb(start_app);
     ble_set_playlist_request_cb(model_on_playlist_request);
 }
-bool model_send_media(const uint8_t* data, uint8_t len){
-    if(data == NULL || len == 0){
-        return false;
+sl_status_t model_send_media(const void *data, size_t len){
+    if(data == NULL || len == 0 || len > 255){
+        return SL_STATUS_INVALID_PARAMETER;
     }
-    sl_status_t sc;
-    sc = ble_send_playlist_data(data, len);
-    app_assert_status(sc);
-    return true;
+    // No app_assert here: failing to send (e.g. device not subscribed yet)
+    // is a normal situation and must not abort the program.
+    return ble_send_playlist_data((const uint8_t *)data, (uint8_t)len);
 }
 
 bool model_add_app(

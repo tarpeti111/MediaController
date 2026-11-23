@@ -28,10 +28,6 @@ static void on_activate(
 
     GtkWidget *window = main_window_create(app);
 
-    if (!stdout_capture_start()) {
-        g_warning("Failed to start stdout capture");
-    }
-
     gtk_window_present(GTK_WINDOW(window));
 }
 

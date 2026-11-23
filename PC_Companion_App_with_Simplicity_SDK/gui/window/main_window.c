@@ -2,6 +2,7 @@
 
 #include "../pages/page_overview.h"
 #include "../pages/page_modules.h"
+#include "../pages/page_installer.h"
 #include "../pages/page_settings.h"
 #include "../widgets/log_viewer.h"
 #include "../widgets/status_indicator.h"
@@ -32,12 +33,14 @@ static GtkWidget *create_sidebar(GtkStack *stack)
     const char *names[] = {
         "Overview",
         "Modules",
+        "Installer",
         "Settings"
     };
 
     const char *pages[] = {
         "overview",
         "modules",
+        "installer",
         "settings"
     };
 
@@ -147,6 +150,12 @@ GtkWidget *main_window_create(GtkApplication *app)
         GTK_STACK(stack),
         modules_create(),
         "modules"
+    );
+
+    gtk_stack_add_named(
+        GTK_STACK(stack),
+        installer_create(),
+        "installer"
     );
 
     gtk_stack_add_named(

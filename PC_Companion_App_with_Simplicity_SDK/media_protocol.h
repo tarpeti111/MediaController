@@ -5,11 +5,16 @@
 // 0xFFFF: Request first batch entries of the playlist
 // 0xFFFE: Request next batch of playlist entries
 // 0x0000 - 0xFFFD: Request a specific playlist index
+//
+// The PC also sends the first batch on its own when the app starts and
+// whenever the queue changes. An entry with index 0 starts a new list:
+// the device should clear its list when it receives one.
+// An entry with total == 0 means the queue is empty.
 
 #define PLAYLIST_REQUEST_FIRST  0xFFFF
 #define PLAYLIST_REQUEST_NEXT  0xFFFE
 
-#define PLAYLIST_FIRST_BATCH_SIZE 12
+#define PLAYLIST_FIRST_BATCH_SIZE 6
 #define PLAYLIST_BATCH_SIZE 3
 
 #define MEDIA_MSG_PLAYLIST_ENTRY 0x01

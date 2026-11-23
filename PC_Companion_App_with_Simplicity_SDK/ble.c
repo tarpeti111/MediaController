@@ -41,6 +41,9 @@ sl_status_t ble_send_app_info_data(const uint8_t* data){
 }
 
 sl_status_t ble_send_playlist_data(const uint8_t* data, uint8_t len){
+  if (connection_handle == SL_BT_INVALID_CONNECTION_HANDLE) {
+    return SL_STATUS_INVALID_STATE;
+  }
   return sl_bt_gatt_server_send_notification(connection_handle, gattdb_media_data, len, data);
 }
 
@@ -124,6 +127,7 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
     // -------------------------------
     // This event indicates that a connection was closed.
     case sl_bt_evt_connection_closed_id:
+      connection_handle = SL_BT_INVALID_CONNECTION_HANDLE;
 
       // Generate data for advertising
       sc = sl_bt_legacy_advertiser_generate_data(advertising_set_handle,

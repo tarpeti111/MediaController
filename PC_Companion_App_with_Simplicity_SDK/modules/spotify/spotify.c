@@ -27,6 +27,7 @@
 #define MAX_URI_LENGHT 128
 #define MAX_QUEUE 32
 #define NOW_PLAYING_POLL_INTERVAL_S (2 * G_USEC_PER_SEC)
+#define QUEUE_CHECK_INTERVAL_US (10 * G_USEC_PER_SEC)   // catch songs added/reordered in the Spotify app
 
 //https://curl.se/libcurl/c/CURLOPT_WRITEFUNCTION.html
 struct memory {
@@ -103,7 +104,7 @@ static char auth_code[512] = {'\0'};
 
 //
 
-media_now_playing_t last_playing = {
+static media_now_playing_t last_playing = {
     .type = 0,
 };
 
@@ -119,6 +120,10 @@ static uint16_t queue_sent = 0; //number of entries already sent
 static char current_context_uri[MAX_URI_LENGHT] = {0};
 static int64_t last_poll_us = 0;
 
+static int64_t last_queue_check_us = 0;
+static uint32_t last_queue_fingerprint = 0;  // hash of the queue last sent to the device
+static bool queue_push_pending = false;     // send the queue as soon as possible (after launch)
+
 static char pending_body[512];
 
 static gpointer setup_callback_server(gpointer data){
@@ -126,7 +131,7 @@ static gpointer setup_callback_server(gpointer data){
 
     WSADATA wsa;
     if(WSAStartup(MAKEWORD(2,2),&wsa) != 0){
-        printf("Failed WSAStartup, error: %d", WSAGetLastError());
+        printf("Failed WSAStartup, error: %d\n", WSAGetLastError());
         return NULL;
     }
 
@@ -236,7 +241,7 @@ static void get_auth_code() {
         "start \"\" \"https://accounts.spotify.com/authorize?client_id=%s&response_type=code"
         "&redirect_uri=%s&code_challenge_method=S256"
         "&code_challenge=%s"
-        "&scope=user-read-playback-state%%20user-modify-playback-state"
+        "&scope=user-read-playback-state%%20user-read-currently-playing%%20user-modify-playback-state"
         "&prompt=consent\"",
         CLIENT_ID, URI_REDIRECT, code_challenge
     );
@@ -300,7 +305,7 @@ static void exchange_code(){
     cJSON* json = cJSON_Parse(mem.response);
 
     if(json == NULL){
-        printf("Error parsing json");
+        printf("Error parsing json\n");
         return;
     }
 
@@ -348,7 +353,7 @@ static void refresh_access(){
     cJSON* json = cJSON_Parse(mem.response);
 
     if(json == NULL){
-        printf("Error parsing json");
+        printf("Error parsing json\n");
         return;
     }
 
@@ -365,6 +370,9 @@ static void refresh_access(){
 static void spotify_on_launch(){
     memset(&last_playing, 0, sizeof(last_playing));
     last_poll_us = 0;
+    last_queue_check_us = 0;
+    last_queue_fingerprint = 0;
+    queue_push_pending = true;
     
     if(state != SPOTIFY_IDLE) return;
 
@@ -426,7 +434,7 @@ static CURLcode update_current_track_and_device(){
     cJSON* json = cJSON_Parse(mem.response);
 
     if(!json){
-        printf("Error parsing json");
+        printf("Error parsing json\n");
         return res;
     }
 
@@ -473,16 +481,16 @@ static CURLcode update_current_track_and_device(){
         current_track.is_playing = cJSON_IsTrue(is_playing);
     }
 
+    // What is playing: playlist, album, artist, ... (can be null)
     cJSON* context = cJSON_GetObjectItemCaseSensitive(json, "context");
-    if(context){
-        cJSON* context_uri = cJSON_GetObjectItemCaseSensitive(context, "uri");
-        if(context_uri->valuestring != NULL){
-            snprintf(current_context_uri, sizeof(current_context_uri), "%s", context->valuestring);
-        }
-        else{
-            current_context_uri[0] = '\0'; 
-        }
+    cJSON* context_uri = context ? cJSON_GetObjectItemCaseSensitive(context, "uri") : NULL;
+    if(cJSON_IsString(context_uri) && context_uri->valuestring != NULL){
+        snprintf(current_context_uri, sizeof(current_context_uri), "%s", context_uri->valuestring);
     }
+    else{
+        current_context_uri[0] = '\0';
+    }
+    printf("Current context URI is set to: %s\n", current_context_uri);
     
     curl_slist_free_all(headers);
     cJSON_Delete(json);
@@ -565,7 +573,8 @@ static int fetch_queue(){
 
     CURLcode res = curl_easy_perform(curl);
     long http_code = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, http_code);
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    curl_slist_free_all(headers);
 
     if(res != CURLE_OK){
         printf("curl error %s\n", curl_easy_strerror(res));
@@ -592,7 +601,7 @@ static int fetch_queue(){
     cJSON* items = cJSON_GetObjectItemCaseSensitive(json, "queue");
     cJSON* item;
     cJSON_ArrayForEach(item, items){
-        if(queue_count >= MAX_QUEUE){ return -1; }
+        if(queue_count >= MAX_QUEUE){ break; }
 
         cJSON* name = cJSON_GetObjectItemCaseSensitive(item, "name");
         cJSON* uri = cJSON_GetObjectItemCaseSensitive(item, "uri");
@@ -614,11 +623,16 @@ static int fetch_queue(){
     return queue_count;
 }
 
-static void send_queue_entries(uint16_t count){
+// Sends up to `count` cached queue entries, starting at queue_sent.
+// Returns false if any send failed (e.g. device not subscribed yet).
+static bool send_queue_entries(uint16_t count){
+    
+    printf("Sending queue elements: %u\n", count);
+
     if(queue_count == 0){
+        // Empty list: one entry with total = 0
         media_playlist_entry_t empty = { .type = MEDIA_MSG_PLAYLIST_ENTRY };
-        model_send_media((const uint8_t *)&empty, sizeof(empty));
-        return;
+        return model_send_media(&empty, sizeof(empty)) == SL_STATUS_OK;
     }
 
     uint16_t end = queue_sent + count;
@@ -626,6 +640,7 @@ static void send_queue_entries(uint16_t count){
         end = queue_count;
     }
 
+    bool ok = true;
     for(uint16_t i = queue_sent; i < end; i++){
         media_playlist_entry_t entry = {
             .type = MEDIA_MSG_PLAYLIST_ENTRY,
@@ -633,17 +648,56 @@ static void send_queue_entries(uint16_t count){
             .total = queue_count,
         };
         snprintf(entry.title, sizeof(entry.title), "%s", queue[i].name);
-        model_send_media((const uint8_t *)&entry, sizeof(entry));
+        if(model_send_media(&entry, sizeof(entry)) != SL_STATUS_OK){
+            ok = false;
+        }
     }
 
     queue_sent = end;
+    return ok;
+}
+
+// FNV-1a hash over all track URIs of the cached queue, used to detect changes.
+static uint32_t queue_fingerprint(void){
+    uint32_t hash = 2166136261u;
+    for(uint16_t i = 0; i < queue_count; i++){
+        for(const char *c = queue[i].uri; *c != '\0'; c++){
+            hash = (hash ^ (uint8_t)*c) * 16777619u;
+        }
+        hash = (hash ^ 0xFF) * 16777619u;   // separator between URIs
+    }
+    return hash ^ queue_count;
+}
+
+// Fetches the queue and, if it changed (or force is set), sends the first
+// batch to the device. An entry with index 0 tells the device to start a new
+// list. Returns false if fetching or sending failed (try again later).
+static bool push_queue_if_changed(bool force){
+    if(fetch_queue() < 0){
+        if(!force) return false;   // keep the old list on a temporary error
+        queue_count = 0;           // forced: report an empty list
+    }
+
+    uint32_t fingerprint = queue_fingerprint();
+    if(!force && fingerprint == last_queue_fingerprint){
+        return true;               // nothing changed
+    }
+
+    queue_sent = 0;
+    if(!send_queue_entries(PLAYLIST_FIRST_BATCH_SIZE)){
+        return false;              // not remembered, so it is sent again next time
+    }
+
+    last_queue_fingerprint = fingerprint;
+    return true;
 }
 
 static CURLcode play_pending_body(){
     return spotify_request("https://api.spotify.com/v1/me/player/play", "PUT", pending_body);
 }
 
-static void send_now_playing_if_changed(void){
+// Returns true if a changed song/state was sent to the device.
+static bool send_now_playing_if_changed(void){
     media_now_playing_t msg = {
         .type = MEDIA_MSG_PLAYLIST_NOW_PLAYLING,
         .is_playing = current_track.is_playing,
@@ -651,11 +705,14 @@ static void send_now_playing_if_changed(void){
     snprintf(msg.title, sizeof(msg.title), "%s", current_track.name);
     snprintf(msg.artist, sizeof(msg.artist), "%s", current_track.artist_name);
 
-    if(memcpy(&msg, &last_playing, sizeof(msg)) == 0) { return; }
+    // msg starts zeroed, so comparing raw bytes is safe
+    if(memcmp(&msg, &last_playing, sizeof(msg)) == 0) { return false; }
 
-    if(model_send_media((const uint8_t *)&msg, sizeof(msg)) == true){
+    if(model_send_media(&msg, sizeof(msg)) == SL_STATUS_OK){
         last_playing = msg;
+        return true;
     }
+    return false;
 }
 
 //Perform an action such as resume_playback, if it fails due to an expired token, get a new one via the refresh token and try again
@@ -690,8 +747,9 @@ static void spotify_on_input(uint16_t inputs){
     }
     if(inputs & JOY_C){
         update_current_track_and_device();
-        send_now_playing_if_changed();
         perform_action(current_track.is_playing ? pause_playback : resume_playback);
+        update_current_track_and_device();
+        send_now_playing_if_changed();
     }
     if(inputs & JOY_N){
 
@@ -700,6 +758,7 @@ static void spotify_on_input(uint16_t inputs){
         perform_action(skip_forward);
         update_current_track_and_device();
         send_now_playing_if_changed();
+        push_queue_if_changed(false);
     }
     if(inputs & JOY_S){
 
@@ -708,6 +767,7 @@ static void spotify_on_input(uint16_t inputs){
         perform_action(skip_backward);
         update_current_track_and_device();
         send_now_playing_if_changed();
+        push_queue_if_changed(false);
     }
 }
 
@@ -734,14 +794,25 @@ static void spotify_process_action(){
             }
             break;
         
-        case SPOTIFY_READY:
+        case SPOTIFY_READY: {
             int64_t now = g_get_monotonic_time();
-            if((now = last_poll_us) >= NOW_PLAYING_POLL_INTERVAL_S){
+            if(now - last_poll_us >= NOW_PLAYING_POLL_INTERVAL_S){
                 last_poll_us = now;
                 update_current_track_and_device();
-                send_now_playing_if_changed();
+                bool song_changed = send_now_playing_if_changed();
+
+                // Queue: right after launch, on every song change, and every
+                // 10 s to catch songs added or reordered in the Spotify app
+                if(queue_push_pending || song_changed ||
+                   now - last_queue_check_us >= QUEUE_CHECK_INTERVAL_US){
+                    last_queue_check_us = now;
+                    if(push_queue_if_changed(queue_push_pending)){
+                        queue_push_pending = false;
+                    }
+                }
             }
             break;
+        }
 
         default:
             break;
@@ -751,6 +822,10 @@ static void spotify_process_action(){
 static void play_queue_entry(uint16_t index){
     if(index >= queue_count){ return; }
 
+    printf("Starting playback for queue index: %u\n", index);
+
+    printf("current_context_uri: %s\nqueue[index].uri: %s\n", current_context_uri, queue[index].uri);
+
     if(current_context_uri[0] != '\0' && queue[index].uri[0] != '\0'){
         snprintf(pending_body, sizeof(pending_body),
                 "{\"context_uri\":\"%s\",\"offset\":{\"uri\":\"%s\"}}",
@@ -758,11 +833,12 @@ static void play_queue_entry(uint16_t index){
         perform_action(play_pending_body);
 
         long http_code = 0;
-        curl_easy_setopt(curl, CURLINFO_RESPONSE_CODE, http_code);
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
         if(http_code >= 200 && http_code < 300) { return; }
     }
-
+    
     //if it didnt work fall back to just skipping x songs
+    printf("Didn't work, skipping instead\n");
     for(uint16_t i = 0; i <= index; i++){
         perform_action(skip_forward);
     }
@@ -774,14 +850,9 @@ static void spotify_on_playlist_request(uint16_t request){
     switch (request)
     {
     case PLAYLIST_REQUEST_FIRST:
+        // Manual refresh: always send the first batch
         update_current_track_and_device();
-        queue_sent = 0;
-        
-        if(fetch_queue() < 0){
-            queue_count = 0;
-        }
-
-        send_queue_entries(PLAYLIST_FIRST_BATCH_SIZE);
+        push_queue_if_changed(true);
         break;
 
     case PLAYLIST_REQUEST_NEXT:
@@ -793,6 +864,7 @@ static void spotify_on_playlist_request(uint16_t request){
         play_queue_entry(request);
         update_current_track_and_device();
         send_now_playing_if_changed();
+        push_queue_if_changed(false);
         break;
     }
 }

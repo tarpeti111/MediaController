@@ -3,6 +3,8 @@
 
 #include "app_builder.h"
 #include <stdbool.h>
+#include <stddef.h>
+#include "sl_status.h"
 
 /*
  * The model is owned by the Silicon Labs thread. Do not call these
@@ -20,6 +22,8 @@ bool model_add_app(
     app_on_playlist_request_t on_playlist_request
 );
 
-bool model_send_media(const uint8_t* data, uint8_t len);
+/* Sends a media_protocol.h message to the device. Returns the BLE status;
+ * fails (without crashing) if the device has not enabled notifications. */
+sl_status_t model_send_media(const void *data, size_t len);
 
 #endif
